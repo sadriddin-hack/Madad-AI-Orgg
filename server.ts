@@ -140,7 +140,8 @@ const saveDB = (data: any) => {
 };
 
 const getGeminiApiKey = (): string | undefined => {
-  return process.env.GEMINI_API_KEY;
+  const db = getDB();
+  return db.config?.geminiApiKey || process.env.GEMINI_API_KEY;
 };
 
 let aiInstance: GoogleGenAI | null = null;

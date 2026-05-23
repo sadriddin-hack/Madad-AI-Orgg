@@ -13,7 +13,8 @@ export default function Admin() {
     instagram: "",
     telegramBot: "",
     emergencyContact: "",
-    aiModel: "gemini-3.5-flash"
+    aiModel: "gemini-3.5-flash",
+    geminiApiKey: ""
   });
 
   const [activeTab, setActiveTab] = useState("overview");
@@ -438,6 +439,19 @@ export default function Admin() {
                       <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Мукаммал ва Иловагӣ)</option>
                       <option value="gemini-3-flash-preview">Gemini 3 Flash (Хеле зуд)</option>
                     </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-zinc-100 uppercase ml-1">Калиди Gemini API Key (Барои фаъол сохтани СУ)</label>
+                    <input 
+                      type="password"
+                      placeholder="AI_Sy... ё калиди худро дар ин ҷо ворид кунед"
+                      className="w-full bg-medical-dark border border-white/10 rounded-xl py-3 px-4 focus:ring-1 focus:ring-medical-green font-mono text-xs text-medical-green placeholder:text-zinc-600"
+                      value={config.geminiApiKey || ""}
+                      onChange={(e) => setConfig({...config, geminiApiKey: e.target.value})}
+                    />
+                    <p className="text-[9px] text-zinc-500 leading-normal font-bold">
+                      * Эзоҳ: Агар ин ҷо калидро холӣ гузоред, система калиди пешфарзи глобалии серверро истифода мебарад. Дар сурати набудани калид, системаи маҳаллии тиббӣ (Offline fallback) бе таваққуф хизмат мерасонад.
+                    </p>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-zinc-100 uppercase ml-1">Хатти доимии дастгирӣ</label>
