@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { 
   Users, 
   Calendar, 
@@ -12,7 +12,12 @@ import {
   MoreVertical,
   Send,
   MessageSquare,
-  Sparkles
+  Sparkles,
+  Trash2,
+  Plus,
+  Save,
+  Check,
+  Loader2
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +43,204 @@ import { cn } from "@/src/lib/utils";
 import { io } from "socket.io-client";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
+
+const BUILT_IN_TEMPLATES = [
+  {
+    id: "default_summon",
+    title: "Даъвати умумӣ",
+    text: "Салом, {patient}! Шуморо духтур {doctor} ба рӯзи {date} соати {time} ба қабули худ фарёд кард. Лутфан бо худатон варақаҳои тиббиро гиред ва сари вақт ҳозир шавед. Бо эҳтиром, MADAD AI."
+  },
+  {
+    id: "lab_results",
+    title: "Натиҷаи таҳлилҳо",
+    text: "Салом, {patient}! Натиҷаҳои таҳлилҳои шумо омода шудаанд. Лутфан рӯзи {date} соати {time} ба қабули духтур {doctor} биёед."
+  },
+  {
+    id: "urgent_call",
+    title: "Даъвати фаврӣ",
+    text: "Салом, {patient}! Аломатҳои шумо боиси нигаронист. Лутфан рӯзи {date} соати {time} фаврӣ барои қабул ба духтур {doctor} ҳозир шавед."
+  },
+  {
+    id: "treatment_followup",
+    title: "Назорати кунунӣ",
+    text: "Салом, {patient}! Барои назорати ҷараёни табобат ва вазъи саломатии худ, лутфан рӯзи {date} соати {time} ба қабули духтур {doctor} ҳозир шавед."
+  }
+];
+
+const escapeRegExp = (str: string) => {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+function DoctorDirectChat({ doctorId, patientId, patientName }: { doctorId: string; patientId: string; patientName: string }) {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const fetchMessages = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get(`/messages?contactId=${patientId}`);
+      setMessages(res.data);
+    } catch (err) {
+      console.warn("Could not load direct messages:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMessages();
+
+    const socket = io();
+    socket.emit("join", { userId: doctorId, role: "DOCTOR" });
+
+    socket.on("new_sms", (msg: any) => {
+      if (
+        (msg.senderId === patientId && msg.receiverId === doctorId) ||
+        (msg.senderId === doctorId && msg.receiverId === patientId)
+      ) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [patientId, doctorId]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, loading]);
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim() || sending) return;
+
+    const messageText = text.trim();
+    setSending(true);
+    try {
+      const res = await api.post("/messages", {
+        receiverId: patientId,
+        text: messageText,
+      });
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === res.data.id)) return prev;
+        return [...prev, res.data];
+      });
+      setText("");
+    } catch (err) {
+      toast.error("СМС паём фиристода нашуд.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const doctorDirectReplies = [
+    "Салом, ман омодаам шуморо қабул кунам. Марҳамат дароед.",
+    "Лутфан ба қабулгоҳ (регистратура) муроҷиат кунед.",
+    "Таҳлилҳои худро бо худатон биёред.",
+    "Салом, рӯзи дигар қабул карда метавонам."
+  ];
+
+  return (
+    <div className="bg-black/45 border border-white/5 rounded-2xl p-4 md:p-5 space-y-4 shadow-xl flex flex-col h-[340px] animate-in fade-in duration-300">
+      <div className="flex justify-between items-center border-b border-white/5 pb-2">
+        <span className="text-xs text-medical-green font-black uppercase tracking-wider flex items-center gap-1.5ClassName bg-transparent">
+          <span className="w-1.5 h-1.5 bg-medical-green rounded-full animate-ping" />
+          СҲҲБАТИ МУСТАҚИМ БО: {patientName}
+        </span>
+        <button 
+          onClick={fetchMessages}
+          className="text-[10px] bg-white/5 hover:bg-white/10 text-zinc-300 px-2 py-0.5 rounded transition-all font-bold"
+        >
+          Навсозӣ
+        </button>
+      </div>
+
+      {/* Messages */}
+      <div 
+        ref={scrollRef}
+        className="flex-grow overflow-y-auto space-y-3 pr-1 custom-scrollbar text-xs"
+      >
+        {loading ? (
+          <div className="flex justify-center items-center h-full">
+            <Loader2 className="w-5 h-5 animate-spin text-medical-green" />
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center text-zinc-500 space-y-2">
+            <MessageSquare className="w-8 h-8 opacity-20" />
+            <p className="italic font-bold text-center">Мукотибаи СМС бо ин бемор холӣ аст. Аввалин паёмокро фиристед.</p>
+          </div>
+        ) : (
+          messages.map((m: any) => {
+            const isMe = m.senderId === doctorId;
+            return (
+              <div 
+                key={m.id} 
+                className={cn("flex flex-col max-w-[85%]", isMe ? "ml-auto items-end" : "mr-auto items-start")}
+              >
+                <div 
+                  className={cn(
+                    "px-3.5 py-2.5 rounded-2xl text-[12px] leading-relaxed shadow-md font-bold",
+                    isMe 
+                      ? "bg-emerald-600 text-white rounded-tr-none" 
+                      : "bg-zinc-800 text-zinc-100 rounded-tl-none border border-white/5"
+                  )}
+                >
+                  {m.text}
+                </div>
+                <span className="text-[9px] text-zinc-500 mt-1 px-1 font-mono">
+                  {new Date(m.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Instant quick comments */}
+      <div className="flex gap-1 overflow-x-auto pb-1.5 scrollbar-none shrink-0 border-t border-white/5 pt-2">
+        {doctorDirectReplies.map((q, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => setText(q)}
+            className="whitespace-nowrap bg-zinc-900 border border-white/5 text-[10px] text-zinc-300 font-bold px-2.5 py-1.5 rounded-xl hover:border-medical-green/45 transition-all cursor-pointer"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+
+      {/* Chat Send interface */}
+      <form onSubmit={handleSend} className="flex gap-2 shrink-0 border-t border-white/5 pt-2">
+        <input 
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Ҷавоб ба бемор (СМС)..."
+          className="flex-grow bg-zinc-950 border border-white/10 text-white font-bold text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:ring-1 focus:ring-medical-green/50 placeholder:text-zinc-600 shadow-inner animate-pulse duration-1000"
+        />
+        <Button 
+          type="submit"
+          disabled={!text.trim() || sending}
+          size="sm"
+          className="bg-medical-green hover:bg-emerald-500 text-black font-black px-4 h-9 rounded-xl flex items-center gap-1 shrink-0 cursor-pointer text-xs"
+        >
+          {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+          <span>ҶАВОБ</span>
+        </Button>
+      </form>
+    </div>
+  );
+}
 
 export default function DoctorDashboard() {
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -68,13 +271,105 @@ export default function DoctorDashboard() {
   const [customSmsText, setCustomSmsText] = useState("");
   const [isAnalyzingSymptom, setIsAnalyzingSymptom] = useState(false);
 
+  // Custom SMS template states
+  const [customTemplates, setCustomTemplates] = useState<any[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("default_summon");
+  const [isManualEdit, setIsManualEdit] = useState<boolean>(false);
+  const [newTemplateTitle, setNewTemplateTitle] = useState<string>("");
+
+  // Load custom templates after user is set
   useEffect(() => {
-    if (selectedAppointment && (summonDate || summonTime)) {
-      const patientName = selectedAppointment.patientName || "Бемор";
-      const docName = user?.name || "Духтур";
-      setCustomSmsText(`Салом, ${patientName}! Шуморо духтур ${docName} ба рӯзи ${summonDate} соати ${summonTime} ба қабули худ фарёд кард. Лутфан бо худатон варақаҳои тиббиро гиред ва сари вақт ҳозир шавед. Бо эҳтиром, MADAD AI.`);
+    if (user?.id) {
+      try {
+        const saved = localStorage.getItem(`madad_custom_templates_${user.id}`);
+        if (saved) {
+          setCustomTemplates(JSON.parse(saved));
+        }
+      } catch (err) {
+        console.error("Error loading templates:", err);
+      }
     }
-  }, [selectedAppointment, summonDate, summonTime, user]);
+  }, [user]);
+
+  // Handle template compile
+  useEffect(() => {
+    if (selectedAppointment && !isManualEdit) {
+      const patientName = selectedAppointment.patientName || "Бемор";
+      const docName = user?.fullName || user?.name || "Духтур";
+      
+      const allTemplates = [...BUILT_IN_TEMPLATES, ...customTemplates];
+      const match = allTemplates.find(t => t.id === selectedTemplateId);
+      if (match) {
+        const text = match.text
+          .replace(/{patient}/g, patientName)
+          .replace(/{doctor}/g, docName)
+          .replace(/{date}/g, summonDate)
+          .replace(/{time}/g, summonTime);
+        setCustomSmsText(text);
+      }
+    }
+  }, [selectedAppointment, summonDate, summonTime, user, selectedTemplateId, customTemplates, isManualEdit]);
+
+  const handleSaveAsTemplate = () => {
+    if (!newTemplateTitle.trim()) {
+      toast.error("Лутфан номи шаблонро ворид кунед!");
+      return;
+    }
+    if (!customSmsText.trim()) {
+      toast.error("Матни шаблон холӣ буда наметавонад!");
+      return;
+    }
+
+    const patientName = selectedAppointment?.patientName || "Бемор";
+    const docName = user?.fullName || user?.name || "Духтур";
+    
+    let templateText = customSmsText;
+    
+    // De-compile to create robust dynamic templates
+    if (patientName) {
+      templateText = templateText.replace(new RegExp(escapeRegExp(patientName), 'g'), "{patient}");
+    }
+    if (docName) {
+      templateText = templateText.replace(new RegExp(escapeRegExp(docName), 'g'), "{doctor}");
+    }
+    if (summonDate) {
+      templateText = templateText.replace(new RegExp(escapeRegExp(summonDate), 'g'), "{date}");
+    }
+    if (summonTime) {
+      templateText = templateText.replace(new RegExp(escapeRegExp(summonTime), 'g'), "{time}");
+    }
+
+    const newTemplate = {
+      id: `custom_${Date.now()}`,
+      title: newTemplateTitle.trim(),
+      text: templateText
+    };
+
+    const updated = [...customTemplates, newTemplate];
+    setCustomTemplates(updated);
+    if (user?.id) {
+      localStorage.setItem(`madad_custom_templates_${user.id}`, JSON.stringify(updated));
+    }
+    
+    setSelectedTemplateId(newTemplate.id);
+    setIsManualEdit(false);
+    setNewTemplateTitle("");
+    toast.success("Шаблони нав бомуваффақият захира шуд!");
+  };
+
+  const handleDeleteTemplate = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const updated = customTemplates.filter(t => t.id !== id);
+    setCustomTemplates(updated);
+    if (user?.id) {
+      localStorage.setItem(`madad_custom_templates_${user.id}`, JSON.stringify(updated));
+    }
+    if (selectedTemplateId === id) {
+      setSelectedTemplateId("default_summon");
+      setIsManualEdit(false);
+    }
+    toast.success("Шаблон нест карда шуд");
+  };
 
   const fetchAppointments = async () => {
     try {
@@ -425,6 +720,15 @@ export default function DoctorDashboard() {
                       </div>
                     </div>
                   )}
+
+                  {/* Real-time Bidirectional SMS/Chat with Patient */}
+                  <div className="bg-zinc-900/40 rounded-2xl border border-white/5 p-1 mt-4">
+                    <DoctorDirectChat 
+                      doctorId={user?.id || selectedAppointment.doctorId}
+                      patientId={selectedAppointment.patientId} 
+                      patientName={selectedAppointment.patientName} 
+                    />
+                  </div>
  
                   {/* Summon Form / Controls */}
                   <div className="pt-4 border-t border-white/10 flex flex-col gap-3">
@@ -454,6 +758,83 @@ export default function DoctorDashboard() {
                           </div>
                         </div>
                         
+                        {/* Custom Templates UI */}
+                        <div className="space-y-2 pt-2 border-t border-white/5">
+                          <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider flex justify-between items-center">
+                            <span>Шаблонҳои СМС (SMS Templates)</span>
+                            <span className="text-[9px] text-zinc-500 font-mono">Шаблони омодаро интихоб кунед</span>
+                          </label>
+                          
+                          <div className="flex flex-wrap gap-1.5 max-h-[140px] overflow-y-auto pr-1">
+                            {BUILT_IN_TEMPLATES.map((t) => {
+                              const isSelected = selectedTemplateId === t.id && !isManualEdit;
+                              return (
+                                <button
+                                  key={t.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedTemplateId(t.id);
+                                    setIsManualEdit(false);
+                                  }}
+                                  className={cn(
+                                    "text-[11px] px-2.5 py-1 rounded-xl border transition-all flex items-center gap-1 cursor-pointer font-bold",
+                                    isSelected 
+                                      ? "bg-medical-green/10 border-medical-green text-medical-green" 
+                                      : "bg-white/5 border-white/10 text-zinc-400 hover:text-white hover:border-white/20"
+                                  )}
+                                >
+                                  {isSelected && <Check className="w-3 h-3" />}
+                                  <span>{t.title}</span>
+                                </button>
+                              );
+                            })}
+
+                            {customTemplates.map((t) => {
+                              const isSelected = selectedTemplateId === t.id && !isManualEdit;
+                              return (
+                                <div
+                                  key={t.id}
+                                  onClick={() => {
+                                    setSelectedTemplateId(t.id);
+                                    setIsManualEdit(false);
+                                  }}
+                                  className={cn(
+                                    "text-[11px] px-2.5 py-1 rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer font-bold",
+                                    isSelected 
+                                      ? "bg-medical-green/10 border-medical-green text-medical-green" 
+                                      : "bg-white/5 border-white/10 text-zinc-400 hover:text-white hover:border-white/20"
+                                  )}
+                                >
+                                  {isSelected && <Check className="w-3 h-3" />}
+                                  <span>{t.title}</span>
+                                  <button 
+                                    type="button"
+                                    onClick={(e) => handleDeleteTemplate(e, t.id)}
+                                    className="p-0.5 rounded hover:bg-red-500/20 hover:text-red-400 text-zinc-500 transition-colors ml-1"
+                                    title="Нест кардан"
+                                  >
+                                    <Trash2 className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex items-center justify-between text-[9px] text-zinc-500 font-medium px-0.5">
+                            {isManualEdit ? (
+                              <button 
+                                type="button"
+                                onClick={() => setIsManualEdit(false)}
+                                className="text-orange-400 hover:underline flex items-center gap-1 cursor-pointer font-bold"
+                              >
+                                ✍️ Паёмак дастӣ таҳрир шуд (Барқарорсозии Шаблон)
+                              </button>
+                            ) : (
+                              <span>✨ Алоқа бо тафсилоти бемори кунунӣ фаъол аст</span>
+                            )}
+                          </div>
+                        </div>
+
                         <div className="space-y-1">
                           <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider flex justify-between items-center">
                             <span>Матни СМС барои бемор (Custom Message)</span>
@@ -461,10 +842,35 @@ export default function DoctorDashboard() {
                           </label>
                           <textarea
                             value={customSmsText}
-                            onChange={(e) => setCustomSmsText(e.target.value)}
+                            onChange={(e) => {
+                              setCustomSmsText(e.target.value);
+                              setIsManualEdit(true);
+                            }}
                             className="w-full bg-zinc-950 border border-white/10 text-zinc-200 text-xs rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-medical-green/45 placeholder:text-zinc-600 min-h-[90px] font-medium leading-relaxed"
                             placeholder="Матни СМС-ро нависед..."
                           />
+                        </div>
+
+                        {/* Save custom template input form */}
+                        <div className="bg-white/5 border border-white/5 rounded-xl p-2.5 space-y-2">
+                          <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <Plus className="w-3 h-3 text-medical-green" /> Захира кардани СМС-и кунунӣ ҳамчун шаблон
+                          </p>
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="Номи Шаблон (масалан: Барои дубора дидан)..."
+                              value={newTemplateTitle}
+                              onChange={(e) => setNewTemplateTitle(e.target.value)}
+                              className="bg-zinc-950 border-white/10 text-xs rounded-xl h-8 text-white placeholder:text-zinc-600 focus:ring-medical-green"
+                            />
+                            <Button
+                              type="button"
+                              onClick={handleSaveAsTemplate}
+                              className="h-8 text-xs bg-medical-green/10 text-medical-green hover:bg-medical-green/20 border border-medical-green/20 font-black px-3.5 rounded-xl flex items-center gap-1.5"
+                            >
+                              <Save className="w-3.5 h-3.5" /> Сабт
+                            </Button>
+                          </div>
                         </div>
                         <div className="flex gap-2.5">
                           <Button 
